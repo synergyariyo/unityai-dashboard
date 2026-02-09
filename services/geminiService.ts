@@ -3,7 +3,7 @@ import { GoogleGenAI, Modality, GenerateContentResponse } from "@google/genai";
 
 // Helper to get client
 const getClient = () => {
- return new GoogleGenAI({ apiKey: "AIzaSyCAHmankZpsw76LazPiw_-LPlqnr0OMHFY" });
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 };
 
 // Helper to remove any rogue asterisks or markdown symbols from the AI response
