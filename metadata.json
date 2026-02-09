@@ -1,0 +1,7 @@
+{
+  "name": "UNITY AI",
+  "description": "The Era of Fragmented Creativity is Over. Unity AI unifies your entire workflow—from Strategy and Branding to 4K Video and Voiceover. Stop juggling subscriptions and start creating with the ultimate all-in-one production studio.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
