@@ -3,7 +3,7 @@ import { GoogleGenAI, Modality, GenerateContentResponse } from "@google/genai";
 
 // Helper to get client
 const getClient = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+ return new GoogleGenAI({ apiKey: "AIzaSyCAHmankZpsw76LazPiw_-LPlqnr0OMHFY" });
 };
 
 // Helper to remove any rogue asterisks or markdown symbols from the AI response
