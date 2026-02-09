@@ -1,71 +1,112 @@
+// --- FINAL GEMINI SERVICE (Direct Fetch Mode) ---
 
-import { GoogleGenAI } from "@google/genai";
-
-// --- 1. CONFIGURATION ---
-const getClient = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY;
-  if (!apiKey) {
-    console.error("API Key is missing. Check Vercel Settings.");
+const getApiKey = () => {
+  const key = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY;
+  if (!key) {
+    console.error("CRITICAL: API Key is missing. Check Vercel Environment Variables.");
     return null;
   }
-  return new GoogleGenAI({ apiKey });
+  return key;
 };
 
-const cleanResponse = (text: string) => {
-  return text ? text.replace(/[\*#]/g, '').trim() : "";
-};
+// --- UNIVERSAL CHAT (The Bulletproof Function) ---
+export const generateMarketingChat = async (
+  history: any[], 
+  text: string, 
+  images: string[] = [] 
+) => {
+  const apiKey = getApiKey();
+  if (!apiKey) return "Error: API Key is missing.";
 
-// --- 2. CHAT (The Core Feature) ---
-export const generateMarketingChat = async (history: any[], text: string) => {
-  const ai = getClient();
-  if (!ai) return "Error: API Key is missing.";
-
-  // We convert history to a simple string format to prevent crashes
-  // This is the safest way to chat
-  let historyText = history.map(h => `${h.role}: ${h.text}`).join("\n");
-  const prompt = `${historyText}\nuser: ${text}\n(Reply as a helpful AI assistant)`;
+  // We try the modern model first.
+  const primaryModel = "gemini-1.5-flash";
+  const backupModel = "gemini-pro";
+  
+  // Format history for the API (User/Model roles)
+  const contents = history.map(msg => ({
+    role: msg.role === 'user' ? 'user' : 'model',
+    parts: [{ text: msg.text }]
+  }));
+  
+  // Add the new user message
+  contents.push({ role: 'user', parts: [{ text: text }] });
 
   try {
-    const res = await ai.models.generateContent({
-      model: 'gemini-1.5-flash', // The most stable, free model
-      contents: { parts: [{ text: prompt }] }
+    // --- ATTEMPT 1: Modern Model ---
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${primaryModel}:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: contents })
     });
-    return cleanResponse(res?.text() || "No response.");
+
+    const data = await response.json();
+
+    // If successful, return the text
+    if (response.ok && data.candidates && data.candidates.length > 0) {
+      return data.candidates[0].content.parts[0].text;
+    }
+
+    // --- ATTEMPT 2: Backup Model (If attempt 1 failed) ---
+    console.warn(`Primary model failed. Switching to Backup...`);
+    
+    const backupUrl = `https://generativelanguage.googleapis.com/v1beta/models/${backupModel}:generateContent?key=${apiKey}`;
+    
+    // Simplify conversation for the older model (prevents format errors)
+    // We just send the last message + context
+    const simplifiedPrompt = `Context: ${history.map(h => h.text).join(' | ')}. \nUser: ${text}`;
+    
+    const backupResponse = await fetch(backupUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: simplifiedPrompt }] }] })
+    });
+
+    const backupData = await backupResponse.json();
+
+    if (backupData.candidates && backupData.candidates.length > 0) {
+      return backupData.candidates[0].content.parts[0].text;
+    }
+
+    return "I'm having trouble connecting right now. Please try again later.";
+
   } catch (error) {
-    console.error("Chat Error:", error);
-    return "I cannot connect right now. Please check your internet.";
+    console.error("Network Error:", error);
+    return "Connection failed. Please check your internet connection.";
   }
 };
 
-// --- 3. TEXT GENERATION ---
+// --- TEXT GENERATION (Direct Fetch) ---
 export const generateText = async (prompt: string) => {
-  const ai = getClient();
-  if (!ai) return "Error: API Key missing.";
-  
+  const apiKey = getApiKey();
+  if (!apiKey) return "Error: Key missing";
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
   try {
-    const res = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
-      contents: { parts: [{ text: prompt }] }
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
-    return cleanResponse(res?.text() || "");
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
   } catch (e) {
     return "Text generation failed.";
   }
 };
 
-// --- 4. IMAGE GENERATION (Basic) ---
+// --- IMAGE GENERATION (Safe Fallback) ---
+// Since images are causing crashes, we switch to "Description Mode" if it fails.
 export const generateOrEditImage = async (prompt: string) => {
-  // If this fails, we just return a text description instead of crashing
-  try {
-     const text = await generateText(`Describe an image of: ${prompt}`);
-     return `(Image generation is currently unavailable. Description: ${text})`;
-  } catch (e) {
-     return "Image generation failed.";
-  }
+  // We return a text description to keep the app working smoothly
+  const desc = await generateText(`Describe a scene showing: ${prompt}`);
+  return `(Image generation unavailable. Description: ${desc})`; 
 };
 
-// --- 5. PLACEHOLDERS (To stop the 503 Crashes) ---
-export const generateVideo = async () => "Video coming soon.";
+// --- PLACEHOLDERS (To stop Vercel 503 Crashes) ---
+export const generateVideo = async () => "Video generation is coming soon.";
 export const generateSpeech = async () => null;
 export const analyzeImage = async () => "Image analysis coming soon.";
 export const generateSpeechFromReference = async () => null;
