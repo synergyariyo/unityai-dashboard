@@ -1,4 +1,4 @@
-// --- FINAL "EXPRESS LANE" CONFIGURATION ---
+// --- FINAL CASCADE CONFIGURATION (Trying 4 Valid Models) ---
 
 const getApiKey = () => {
   const key = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY;
@@ -9,21 +9,20 @@ const getApiKey = () => {
   return key;
 };
 
-// --- CHAT (Using Flash-Lite for maximum speed/availability) ---
+// --- CHAT (The "Unstoppable" Chain) ---
 export const generateMarketingChat = async (history: any[], text: string) => {
   const apiKey = getApiKey();
   if (!apiKey) return "Error: API Key is missing.";
 
-  // PRIORITY 1: The "Lite" model (Least busy, fastest)
-  const modelPriority1 = "gemini-2.0-flash-lite-001";
-  
-  // PRIORITY 2: The Standard 2.0 Flash (Stable)
-  const modelPriority2 = "gemini-2.0-flash-001";
+  // THESE ARE EXACTLY FROM YOUR LIST (No guessing)
+  const modelsToTry = [
+    "gemini-2.5-flash",        // 1. Newest Stable
+    "gemini-2.0-flash-lite-001", // 2. Fastest / Least Busy
+    "gemini-flash-latest",     // 3. Generic Fast Alias
+    "gemini-pro-latest"        // 4. Generic Standard Alias
+  ];
 
-  // PRIORITY 3: The Old Reliable (1.5 Flash)
-  const modelPriority3 = "gemini-1.5-flash-latest";
-
-  // Helper function to try a model
+  // Helper to run a specific model
   const tryModel = async (modelName: string, payload: any) => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
     try {
@@ -34,7 +33,7 @@ export const generateMarketingChat = async (history: any[], text: string) => {
       });
       return await res.json();
     } catch (e) {
-      return { error: { message: "Network Error" } };
+      return { error: { message: "Network Connection Failed" } };
     }
   };
 
@@ -45,40 +44,35 @@ export const generateMarketingChat = async (history: any[], text: string) => {
   }));
   contents.push({ role: 'user', parts: [{ text: text }] });
 
-  // --- EXECUTION CHAIN ---
-  
-  // 1. Try Lite
-  let data = await tryModel(modelPriority1, { contents });
+  // --- THE LOOP ---
+  // We try each model one by one. If one works, we stop and return the text.
+  let lastError = "";
 
-  // 2. If Lite is busy/error, try Standard 2.0
-  if (data.error) {
-    console.warn(`Lite model (${modelPriority1}) busy. Switching to Standard 2.0...`);
-    data = await tryModel(modelPriority2, { contents });
+  for (const model of modelsToTry) {
+    console.log(`Attempting model: ${model}...`);
+    const data = await tryModel(model, { contents });
+
+    // 1. SUCCESS: We got text back
+    if (data.candidates && data.candidates.length > 0) {
+      return data.candidates[0].content.parts[0].text;
+    }
+
+    // 2. FAILURE: Log it and continue to the next model
+    if (data.error) {
+      console.warn(`Model ${model} failed:`, data.error.message);
+      lastError = data.error.message;
+      // We do NOT return here. We loop again to try the next model.
+    }
   }
 
-  // 3. If Standard 2.0 is busy, try Old 1.5
-  if (data.error) {
-    console.warn(`Standard model (${modelPriority2}) busy. Switching to Legacy 1.5...`);
-    data = await tryModel(modelPriority3, { contents });
-  }
-
-  // --- RESULT HANDLING ---
-  if (data.candidates && data.candidates.length > 0) {
-    return data.candidates[0].content.parts[0].text;
-  }
-
-  if (data.error) {
-    // If all 3 failed, we finally show the error
-    return `(System Busy: All models are currently overloaded. Please wait 1 minute. Error: ${data.error.message})`;
-  }
-
-  return "No response received.";
+  // If we get here, ALL 4 models failed.
+  return `(System Busy: All available models failed. Last Error: ${lastError})`;
 };
 
 // --- IMAGE GENERATION ---
 export const generateOrEditImage = async (prompt: string) => {
   const apiKey = getApiKey();
-  // Using the specific experimental model from your list
+  // Using the experimental image model from your list
   const model = "gemini-2.0-flash-exp-image-generation";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -95,9 +89,9 @@ export const generateOrEditImage = async (prompt: string) => {
       return `data:image/png;base64,${data.candidates[0].content.parts[0].inlineData.data}`;
     }
     
-    if (data.error?.code === 429) return "(Daily image limit reached - Try again tomorrow)";
+    if (data.error?.code === 429) return "(Daily image limit reached)";
     
-    return "(Image generation currently unavailable)";
+    return "(Image generation unavailable)";
 
   } catch (e) {
     return "Image generation failed.";
