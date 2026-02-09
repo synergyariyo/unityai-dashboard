@@ -1,48 +1,115 @@
-// --- Image Generation & Editing ---
-export const generateOrEditImage = async (
-  prompt: string,
-  imageBase64?: string,
-  mimeType: string = 'image/png',
-  aspectRatio: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' = '1:1'
-): Promise<string> => {
+import { GoogleGenAI } from "@google/genai";
+
+// --- CLIENT CONFIGURATION ---
+const getClient = () => {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY;
+  if (!apiKey) {
+    console.warn("API Key missing. Check Vercel Environment Variables.");
+    return null;
+  }
+  return new GoogleGenAI({ apiKey });
+};
+
+const cleanResponse = (text: string) => {
+  return text ? text.replace(/[\*#]/g, '').trim() : "";
+};
+
+// --- 1. Text Generation (Gemini 2.0 Flash) ---
+export const generateText = async (prompt: string) => {
   const ai = getClient();
-  const model = 'imagen-3.0-generate-001';
-
+  if (!ai) return "Error: API Key missing.";
+  
   try {
-    // 1. Check if user is trying to EDIT (Image + Text)
-    // Imagen 3.0 via API currently supports Text-to-Image best. 
-    // Image-to-Image editing is often a different endpoint or model.
-    if (imageBase64) {
-       throw new Error("Image Editing is currently limited in the public API. Please try generating a new image from text.");
-    }
-
-    // 2. Use the CORRECT method for Images: .generateImages()
-    // @ts-ignore - The SDK types might be slightly behind the live API
-    const response = await ai.models.generateImages({
-      model: model,
-      prompt: prompt,
-      config: {
-        numberOfImages: 1,
-        aspectRatio: aspectRatio
-      }
+    const res = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: { parts: [{ text: prompt }] }
     });
-
-    // 3. Extract the image correctly
-    const generatedImage = response.generatedImages?.[0]?.image;
-    
-    if (generatedImage?.imageBytes) {
-      // The API returns the image as a base64 string directly
-      return `data:image/jpeg;base64,${generatedImage.imageBytes}`;
-    }
-    
-    throw new Error("No image data found in response.");
-    
-  } catch (error: any) {
-    console.error("Image generation error:", error);
-    // If Imagen 3 fails (due to free tier limits), fallback to a friendly error
-    if (error.message?.includes('404') || error.message?.includes('not found')) {
-      throw new Error("Imagen 3 is not yet enabled for your API Key. Please wait for Google to rollout access to your account.");
-    }
-    throw error;
+    return cleanResponse(res?.text() || "");
+  } catch (e) {
+    console.error(e);
+    return "Text generation failed. (Check API Key)";
   }
 };
+
+// --- 2. Image Generation (Gemini 2.0 Flash) ---
+export const generateOrEditImage = async (prompt: string) => {
+  const ai = getClient();
+  if (!ai) throw new Error("API Key missing");
+
+  try {
+    // gemini-2.0-flash is the best free model for this currently
+    const res = await ai.models.generateContent({
+      model: 'gemini-2.0-flash', 
+      contents: { parts: [{ text: prompt }] }
+    });
+
+    const candidates = res.candidates || [];
+    for (const c of candidates) {
+      if (c.content?.parts?.[0]?.inlineData) {
+        return `data:image/png;base64,${c.content.parts[0].inlineData.data}`;
+      }
+    }
+    throw new Error("Model returned text instead of image. Try a clearer prompt.");
+  } catch (e) {
+    console.error(e);
+    throw new Error("Image generation failed. Ensure your Google Cloud project has access.");
+  }
+};
+
+// --- 3. Chat (Gemini 2.0 Flash) ---
+export const generateMarketingChat = async (history: any[], text: string) => {
+  const ai = getClient();
+  if (!ai) return "Error: API Key missing";
+
+  // Simplify history to prevent server format errors
+  const simpleHistory = history.map(h => ({ 
+    role: h.role, 
+    parts: [{ text: h.text }] 
+  }));
+  simpleHistory.push({ role: 'user', parts: [{ text }] });
+
+  try {
+    const res = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: simpleHistory
+    });
+    return cleanResponse(res?.text() || "");
+  } catch (e) {
+    return "Chat failed. Please try again.";
+  }
+};
+
+// --- 4. SAFE PLACEHOLDERS (Prevents 503 Build Crashes) ---
+// These functions only run in the browser, never on the server.
+export const generateVideo = async () => {
+  if (typeof window === 'undefined') return "";
+  return "Video generation is coming soon."; 
+};
+
+export const generateSpeech = async () => {
+  if (typeof window === 'undefined') return null;
+  console.log("Speech generation skipped in safe mode.");
+  return null;
+};
+
+export const analyzeImage = async (prompt: string, imageBase64: string) => {
+  const ai = getClient();
+  if (!ai) return "API Key Missing";
+  
+  try {
+    const res = await ai.models.generateContent({
+      model: 'gemini-1.5-pro', // Best for analysis
+      contents: { 
+        parts: [
+          { inlineData: { data: imageBase64.split(',')[1], mimeType: 'image/png' } }, 
+          { text: prompt }
+        ] 
+      }
+    });
+    return cleanResponse(res?.text() || "");
+  } catch (error) {
+    return "Failed to analyze image.";
+  }
+};
+
+export const generateSpeechFromReference = async () => null;
