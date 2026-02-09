@@ -1,30 +1,27 @@
-// --- FINAL CONFIGURATION (Gemini 2.0) ---
+// --- FINAL HYBRID ENGINE (Corrected Model Name) ---
 
 const getApiKey = () => {
   const key = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY;
   if (!key) {
-    console.error("CRITICAL: API Key is missing. Check Vercel Environment Variables.");
+    console.error("CRITICAL: API Key is missing.");
     return null;
   }
   return key;
 };
 
-// --- CHAT (Using Gemini 2.0 Flash) ---
+// --- 1. CHAT (Updated to use 'latest') ---
 export const generateMarketingChat = async (history: any[], text: string) => {
   const apiKey = getApiKey();
   if (!apiKey) return "Error: API Key is missing.";
 
-  // UPDATED: Using a model from your authorized list
-  const modelName = "gemini-2.0-flash-001"; 
+  // CORRECTED: Added '-latest' as you requested
+  const modelName = "gemini-1.5-flash-latest"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-  // Format history
   const contents = history.map(msg => ({
     role: msg.role === 'user' ? 'user' : 'model',
     parts: [{ text: msg.text }]
   }));
-  
-  // Add new message
   contents.push({ role: 'user', parts: [{ text: text }] });
 
   try {
@@ -36,48 +33,49 @@ export const generateMarketingChat = async (history: any[], text: string) => {
 
     const data = await response.json();
 
+    // ERROR HANDLING
     if (!response.ok) {
-      console.error("API Error:", data);
+      console.error(`Model ${modelName} failed:`, data);
+      
+      // Fallback to Gemini Pro if Flash Latest fails
+      if (data.error?.code === 404 || data.error?.code === 429) {
+         return await generateChatFallback(history, text);
+      }
       return `Error: ${data.error?.message || "Unknown error"}`;
     }
 
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
 
   } catch (error) {
-    console.error("Network Error:", error);
-    return "Connection failed. Please check your internet.";
+    return "Connection failed.";
   }
 };
 
-// --- TEXT GENERATION (Using Gemini 2.0 Flash) ---
-export const generateText = async (prompt: string) => {
+// --- Backup Chat (Gemini Pro) ---
+const generateChatFallback = async (history: any[], text: string) => {
   const apiKey = getApiKey();
-  if (!apiKey) return "Error: Key missing";
-
-  const modelName = "gemini-2.0-flash-001";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+  const prompt = `Context: ${history.map(h => h.text).join(' | ')}. User: ${text}`;
+  
   try {
-    const response = await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  } catch (e) {
-    return "Text generation failed.";
-  }
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "Service busy.";
+  } catch (e) { return "Service unavailable."; }
 };
 
-// --- IMAGE GENERATION (Using Your Experimental Image Model) ---
+// --- 2. IMAGE GENERATION (Experimental) ---
 export const generateOrEditImage = async (prompt: string) => {
   const apiKey = getApiKey();
   if (!apiKey) return "Error: Key missing";
 
-  // Using the specific image generation model from your list
-  const modelName = "gemini-2.0-flash-exp-image-generation";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+  // Using the experimental image model from your list
+  const model = "gemini-2.0-flash-exp-image-generation";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   try {
     const response = await fetch(url, {
@@ -87,21 +85,25 @@ export const generateOrEditImage = async (prompt: string) => {
     });
 
     const data = await response.json();
-    
-    // Check if we got an image back (inlineData)
-    const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-    
-    if (inlineData) {
-      return `data:image/png;base64,${inlineData.data}`;
-    } else {
-      // Fallback: If image gen fails, return a text description instead of crashing
-      const text = await generateText(`Describe an image of: ${prompt}`);
-      return `(Image generation unavailable. Description: ${text})`;
+
+    if (data.candidates?.[0]?.content?.parts?.[0]?.inlineData) {
+      return `data:image/png;base64,${data.candidates[0].content.parts[0].inlineData.data}`;
     }
+
+    if (data.error) {
+      return `(Image Error: ${data.error.message})`;
+    }
+
+    return "(Image generation failed)";
 
   } catch (e) {
     return "Image generation failed.";
   }
+};
+
+// --- 3. TEXT GENERATION ---
+export const generateText = async (prompt: string) => {
+  return await generateMarketingChat([], prompt);
 };
 
 // --- STUBS ---
